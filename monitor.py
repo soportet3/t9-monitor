@@ -8,7 +8,7 @@ import os
 # --- CONFIGURACIÓN DESDE VARIABLES DE ENTORNO ---
 OLT_URL = "https://10.109.250.81"
 LOGIN_URL = f"{OLT_URL}/action/login.html"
-STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"  # Página con Phase State
+STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"
 USERNAME = os.environ.get("OLT_USER")
 PASSWORD = os.environ.get("OLT_PASS")
 
@@ -16,10 +16,10 @@ PASSWORD = os.environ.get("OLT_PASS")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-# Intervalo en segundos
+# Intervalo de chequeo
 INTERVALO = 60
 
-# Flask
+# Iniciar Flask
 app = Flask(__name__)
 
 
@@ -48,7 +48,7 @@ def revisar_onus(session):
     try:
         r = session.get(STATUS_URL, verify=False, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
-        filas = soup.find_all("tr")[1:]  # Ignorar encabezado
+        filas = soup.find_all("tr")[1:]
 
         for fila in filas:
             columnas = [c.text.strip() for c in fila.find_all("td")]
@@ -73,7 +73,7 @@ def revisar_onus(session):
 
 @app.route("/")
 def home():
-    return "✅ El monitor de ONUs está corriendo en Render."
+    return "✅ El monitor de ONUs está corriendo y escuchando en Render."
 
 
 def loop_monitor():
@@ -87,10 +87,10 @@ def loop_monitor():
 
 
 if __name__ == "__main__":
-    # Hilo para ejecutar el monitor
+    # Ejecutar el loop de monitoreo en un hilo separado
     t = threading.Thread(target=loop_monitor, daemon=True)
     t.start()
 
-    # Flask para mantener el servicio activo en Render
-    port = int(os.environ.get("PORT", 5000))
+    # Mantener Render vivo escuchando en el puerto asignado
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

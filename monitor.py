@@ -1,31 +1,35 @@
+import threading
 import time
 import requests
 from bs4 import BeautifulSoup
+from flask import Flask
 import os
 
-# --- CONFIGURACIÓN ---
+# --- Configuración ---
 OLT_URL = "https://10.109.250.81"
 LOGIN_URL = f"{OLT_URL}/action/login.html"
-STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"  # Página con Phase State
+STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"
 
-# Variables de entorno en Render
 USERNAME = os.getenv("OLT_USER")
 PASSWORD = os.getenv("OLT_PASS")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-
-# Intervalo en segundos
 INTERVALO = int(os.getenv("CHECK_INTERVAL", 60))
 
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ Monitor de ONU corriendo en Render"
 
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": CHAT_ID, "text": mensaje}
     try:
         requests.post(url, data=data, timeout=10)
+        print("Enviado a Telegram:", mensaje)
     except Exception as e:
         print("Error enviando a Telegram:", e)
-
 
 def login():
     session = requests.Session()
@@ -38,13 +42,11 @@ def login():
         print("Error al loguearse:", e)
     return None
 
-
 def revisar_onus(session):
     try:
         r = session.get(STATUS_URL, verify=False, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
-        filas = soup.find_all("tr")[1:]  # Ignorar encabezado
-
+        filas = soup.find_all("tr")[1:]  # Ignora el encabezado
         for fila in filas:
             columnas = [c.text.strip() for c in fila.find_all("td")]
             if len(columnas) > 5:
@@ -52,7 +54,6 @@ def revisar_onus(session):
                 phase_state = columnas[3]
                 descripcion = columnas[4]
                 motivo = columnas[7] if len(columnas) > 7 else "N/A"
-
                 if phase_state.lower() == "los":
                     mensaje = (f"⚠️ ALERTA ONU\n"
                                f"ID: {onu_id}\n"
@@ -60,13 +61,10 @@ def revisar_onus(session):
                                f"Descripción: {descripcion}\n"
                                f"Motivo: {motivo}")
                     enviar_telegram(mensaje)
-                    print("Alerta enviada:", mensaje)
-
     except Exception as e:
         print("Error revisando ONUs:", e)
 
-
-if __name__ == "__main__":
+def loop_monitor():
     while True:
         sesion = login()
         if sesion:
@@ -74,3 +72,7 @@ if __name__ == "__main__":
         else:
             print("No se pudo iniciar sesión en la OLT.")
         time.sleep(INTERVALO)
+
+if __name__ == "__main__":
+    threading.Thread(target=loop_monitor, daemon=True).start()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

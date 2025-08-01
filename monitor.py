@@ -1,35 +1,35 @@
-import threading
 import time
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask
 import os
+from flask import Flask
+import threading
 
-# --- Configuración ---
+# --- CONFIGURACIÓN ---
 OLT_URL = "https://10.109.250.81"
 LOGIN_URL = f"{OLT_URL}/action/login.html"
-STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"
+STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"  # Página con Phase State
+USERNAME = os.getenv("OLT_USER", "scraping")
+PASSWORD = os.getenv("OLT_PASS", "monitoreo1234")
 
-USERNAME = os.getenv("OLT_USER")
-PASSWORD = os.getenv("OLT_PASS")
+# Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-INTERVALO = int(os.getenv("CHECK_INTERVAL", 60))
 
-app = Flask(__name__)
+# Intervalo en segundos
+INTERVALO = 60
 
-@app.route('/')
-def home():
-    return "✅ Monitor de ONU corriendo en Render"
 
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": CHAT_ID, "text": mensaje}
     try:
-        requests.post(url, data=data, timeout=10)
-        print("Enviado a Telegram:", mensaje)
+        r = requests.post(url, data=data, timeout=10)
+        if r.status_code != 200:
+            print("Error enviando a Telegram:", r.text)
     except Exception as e:
         print("Error enviando a Telegram:", e)
+
 
 def login():
     session = requests.Session()
@@ -42,11 +42,13 @@ def login():
         print("Error al loguearse:", e)
     return None
 
+
 def revisar_onus(session):
     try:
         r = session.get(STATUS_URL, verify=False, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
-        filas = soup.find_all("tr")[1:]  # Ignora el encabezado
+        filas = soup.find_all("tr")[1:]  # Ignorar encabezado
+
         for fila in filas:
             columnas = [c.text.strip() for c in fila.find_all("td")]
             if len(columnas) > 5:
@@ -54,6 +56,7 @@ def revisar_onus(session):
                 phase_state = columnas[3]
                 descripcion = columnas[4]
                 motivo = columnas[7] if len(columnas) > 7 else "N/A"
+
                 if phase_state.lower() == "los":
                     mensaje = (f"⚠️ ALERTA ONU\n"
                                f"ID: {onu_id}\n"
@@ -61,8 +64,11 @@ def revisar_onus(session):
                                f"Descripción: {descripcion}\n"
                                f"Motivo: {motivo}")
                     enviar_telegram(mensaje)
+                    print("Alerta enviada:", mensaje)
+
     except Exception as e:
         print("Error revisando ONUs:", e)
+
 
 def loop_monitor():
     while True:
@@ -73,6 +79,20 @@ def loop_monitor():
             print("No se pudo iniciar sesión en la OLT.")
         time.sleep(INTERVALO)
 
+
+# --- Flask para Render ---
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "✅ Monitor de ONU corriendo en Render"
+
+
 if __name__ == "__main__":
-    threading.Thread(target=loop_monitor, daemon=True).start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    # Hilo para el monitor
+    t = threading.Thread(target=loop_monitor, daemon=True)
+    t.start()
+
+    # Flask para que Render detecte el puerto
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

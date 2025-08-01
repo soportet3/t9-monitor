@@ -1,32 +1,33 @@
 import time
 import requests
 from bs4 import BeautifulSoup
-import os
 from flask import Flask
 import threading
+import os
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DESDE VARIABLES DE ENTORNO ---
 OLT_URL = "https://10.109.250.81"
 LOGIN_URL = f"{OLT_URL}/action/login.html"
 STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"  # Página con Phase State
-USERNAME = os.getenv("OLT_USER", "scraping")
-PASSWORD = os.getenv("OLT_PASS", "monitoreo1234")
+USERNAME = os.environ.get("OLT_USER")
+PASSWORD = os.environ.get("OLT_PASS")
 
 # Telegram
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
 
 # Intervalo en segundos
 INTERVALO = 60
+
+# Flask
+app = Flask(__name__)
 
 
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": CHAT_ID, "text": mensaje}
     try:
-        r = requests.post(url, data=data, timeout=10)
-        if r.status_code != 200:
-            print("Error enviando a Telegram:", r.text)
+        requests.post(url, data=data, timeout=10)
     except Exception as e:
         print("Error enviando a Telegram:", e)
 
@@ -70,6 +71,11 @@ def revisar_onus(session):
         print("Error revisando ONUs:", e)
 
 
+@app.route("/")
+def home():
+    return "✅ El monitor de ONUs está corriendo en Render."
+
+
 def loop_monitor():
     while True:
         sesion = login()
@@ -80,19 +86,11 @@ def loop_monitor():
         time.sleep(INTERVALO)
 
 
-# --- Flask para Render ---
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "✅ Monitor de ONU corriendo en Render"
-
-
 if __name__ == "__main__":
-    # Hilo para el monitor
+    # Hilo para ejecutar el monitor
     t = threading.Thread(target=loop_monitor, daemon=True)
     t.start()
 
-    # Flask para que Render detecte el puerto
+    # Flask para mantener el servicio activo en Render
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

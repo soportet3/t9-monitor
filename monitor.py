@@ -1,20 +1,21 @@
 import time
 import requests
 from bs4 import BeautifulSoup
+import os
 
 # --- CONFIGURACIÓN ---
 OLT_URL = "https://10.109.250.81"
 LOGIN_URL = f"{OLT_URL}/action/login.html"
 STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"  # Página con Phase State
-USERNAME = "scraping"
-PASSWORD = "monitoreo1234"
 
-# Telegram
-TELEGRAM_TOKEN = "7934058675:AAHDOP_0lwd-MhvYma68GOU8b2Qaxj-QDWo"
-CHAT_ID = "7521237406"
+# Variables de entorno en Render
+USERNAME = os.getenv("OLT_USER")
+PASSWORD = os.getenv("OLT_PASS")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 # Intervalo en segundos
-INTERVALO = 60
+INTERVALO = int(os.getenv("CHECK_INTERVAL", 60))
 
 
 def enviar_telegram(mensaje):

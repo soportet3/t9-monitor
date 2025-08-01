@@ -1,19 +1,19 @@
-import os
 import time
 import requests
 from bs4 import BeautifulSoup
+import os
 
-# --- CONFIGURACIÓN DESDE VARIABLES DE ENTORNO ---
+# --- CONFIGURACIÓN ---
 OLT_URL = "https://10.109.250.81"
 LOGIN_URL = f"{OLT_URL}/action/login.html"
 STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"
 
 USERNAME = os.getenv("OLT_USER")
 PASSWORD = os.getenv("OLT_PASS")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# Intervalo en segundos
+# Intervalo de chequeo en segundos
 INTERVALO = 60
 
 
@@ -22,10 +22,8 @@ def enviar_telegram(mensaje):
     data = {"chat_id": CHAT_ID, "text": mensaje}
     try:
         r = requests.post(url, data=data, timeout=10)
-        if r.status_code == 200:
-            print("Mensaje enviado a Telegram")
-        else:
-            print("Error enviando a Telegram:", r.text)
+        if r.status_code != 200:
+            print("Error en respuesta Telegram:", r.text)
     except Exception as e:
         print("Error enviando a Telegram:", e)
 
@@ -35,9 +33,10 @@ def login():
     payload = {"username": USERNAME, "password": PASSWORD}
     try:
         r = session.post(LOGIN_URL, data=payload, verify=False, timeout=10)
-        if r.status_code == 200:
-            print("Login correcto en OLT")
+        if r.status_code == 200 and "ONU Status" in r.text:
             return session
+        else:
+            print("Error al loguearse, status:", r.status_code)
     except Exception as e:
         print("Error al loguearse:", e)
     return None
@@ -45,19 +44,11 @@ def login():
 
 def revisar_onus(session):
     try:
-        # Simular el clic en Refresh
-        payload_refresh = {"port_refresh": "Refresh"}
-        session.post(STATUS_URL, data=payload_refresh, verify=False, timeout=10)
-
-        # Obtener tabla actualizada
-        r = session.get(STATUS_URL, verify=False, timeout=10)
+        # simular el clic en Refresh
+        r = session.post(STATUS_URL, data={"port_refresh": "Refresh"}, verify=False, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
+
         filas = soup.find_all("tr")[1:]  # Ignorar encabezado
-
-        if not filas:
-            print("⚠️ No se encontraron ONUs en la tabla.")
-            return
-
         for fila in filas:
             columnas = [c.text.strip() for c in fila.find_all("td")]
             if len(columnas) > 5:

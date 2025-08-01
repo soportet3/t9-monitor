@@ -1,36 +1,32 @@
 import time
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask
 import threading
+from flask import Flask
 import os
 
-# --- CONFIGURACIÓN DESDE VARIABLES DE ENTORNO ---
+# --- CONFIG DESDE VARIABLES DE ENTORNO ---
 OLT_URL = "https://10.109.250.81"
 LOGIN_URL = f"{OLT_URL}/action/login.html"
-STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"
-USERNAME = os.environ.get("OLT_USER")
-PASSWORD = os.environ.get("OLT_PASS")
+STATUS_URL = f"{OLT_URL}/action/onustatusinfo.html"  # Página con Phase State
+USERNAME = os.getenv("OLT_USER")
+PASSWORD = os.getenv("OLT_PASS")
 
-# Telegram
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-# Intervalo de chequeo
 INTERVALO = 60
 
-# Iniciar Flask
 app = Flask(__name__)
-
 
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": CHAT_ID, "text": mensaje}
     try:
-        requests.post(url, data=data, timeout=10)
+        r = requests.post(url, data=data, timeout=10)
+        print("Telegram enviado:", r.text)
     except Exception as e:
         print("Error enviando a Telegram:", e)
-
 
 def login():
     session = requests.Session()
@@ -43,54 +39,47 @@ def login():
         print("Error al loguearse:", e)
     return None
 
-
-def revisar_onus(session):
-    try:
-        r = session.get(STATUS_URL, verify=False, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
-        filas = soup.find_all("tr")[1:]
-
-        for fila in filas:
-            columnas = [c.text.strip() for c in fila.find_all("td")]
-            if len(columnas) > 5:
-                onu_id = columnas[0]
-                phase_state = columnas[3]
-                descripcion = columnas[4]
-                motivo = columnas[7] if len(columnas) > 7 else "N/A"
-
-                if phase_state.lower() == "los":
-                    mensaje = (f"⚠️ ALERTA ONU\n"
-                               f"ID: {onu_id}\n"
-                               f"Estado: {phase_state}\n"
-                               f"Descripción: {descripcion}\n"
-                               f"Motivo: {motivo}")
-                    enviar_telegram(mensaje)
-                    print("Alerta enviada:", mensaje)
-
-    except Exception as e:
-        print("Error revisando ONUs:", e)
-
-
-@app.route("/")
-def home():
-    return "✅ El monitor de ONUs está corriendo y escuchando en Render."
-
-
-def loop_monitor():
+def revisar_onus():
     while True:
-        sesion = login()
-        if sesion:
-            revisar_onus(sesion)
-        else:
-            print("No se pudo iniciar sesión en la OLT.")
+        session = login()
+        if not session:
+            print("No se pudo iniciar sesión.")
+            time.sleep(INTERVALO)
+            continue
+
+        try:
+            r = session.get(STATUS_URL, verify=False, timeout=10)
+            soup = BeautifulSoup(r.text, "html.parser")
+            filas = soup.find_all("tr")[1:]  # Ignorar encabezado
+
+            for fila in filas:
+                columnas = [c.text.strip() for c in fila.find_all("td")]
+                if len(columnas) > 5:
+                    onu_id = columnas[0]
+                    phase_state = columnas[3]
+                    descripcion = columnas[4]
+                    motivo = columnas[7] if len(columnas) > 7 else "N/A"
+
+                    if phase_state.lower() == "los":
+                        mensaje = (f"⚠️ ALERTA ONU\n"
+                                   f"ID: {onu_id}\n"
+                                   f"Estado: {phase_state}\n"
+                                   f"Descripción: {descripcion}\n"
+                                   f"Motivo: {motivo}")
+                        enviar_telegram(mensaje)
+        except Exception as e:
+            print("Error revisando ONUs:", e)
+
         time.sleep(INTERVALO)
 
+@app.route('/')
+def home():
+    return "✅ Monitor corriendo y revisando ONUs..."
 
 if __name__ == "__main__":
-    # Ejecutar el loop de monitoreo en un hilo separado
-    t = threading.Thread(target=loop_monitor, daemon=True)
-    t.start()
+    # Hilo separado para el monitor
+    hilo = threading.Thread(target=revisar_onus, daemon=True)
+    hilo.start()
 
-    # Mantener Render vivo escuchando en el puerto asignado
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # Flask mantiene vivo el servicio
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
